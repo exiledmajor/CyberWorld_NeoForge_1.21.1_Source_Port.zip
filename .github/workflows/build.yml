@@ -23,9 +23,31 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # Important: extract the project BEFORE setup-gradle scans for build files.
       - name: Extract ported source
         run: unzip -q CyberWorld_NeoForge_1.21.1_Source_Port.zip -d source
+
+      # In 1.21.1 biomes are dynamically registered, so BuiltInRegistries.BIOME is not available.
+      - name: Fix Minecraft 1.21.1 biome registry lookup
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("source/CyberWorld-master/src/main/java/io/github/kuohsuanlo/cyberworld/CyberBiomeGrid.java")
+          source = path.read_text(encoding="utf-8")
+          source = source.replace("import net.minecraft.core.registries.BuiltInRegistries;\n", "")
+          old = "        var key = BuiltInRegistries.BIOME.getKey(holder.value());\n        found = key == null ? Biome.PLAINS : Biome.fromModernName(key.getPath());"
+          new = "        var key = holder.unwrapKey().orElse(null);\n        found = key == null ? Biome.PLAINS : Biome.fromModernName(key.location().getPath());"
+
+          if old in source:
+              source = source.replace(old, new)
+              path.write_text(source, encoding="utf-8")
+              print("Applied Minecraft 1.21.1 biome-registry fix.")
+          elif new in source and "BuiltInRegistries.BIOME" not in source:
+              print("Biome-registry fix is already present; no change needed.")
+          else:
+              raise SystemExit("Could not safely locate the expected biome-registry code in CyberBiomeGrid.java")
+          PY
 
       - name: Set up Gradle 8.14.3
         uses: gradle/actions/setup-gradle@v6
